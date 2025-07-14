@@ -1,83 +1,78 @@
-import requests
+import time
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from webdriver_manager.chrome import ChromeDriverManager
 
-def scrape_page(url: str) -> tuple[str | None, list[str]]:
+def scrape_page_with_selenium(url: str) -> str | None:
     """
-    Scrapes a single page for its text content and finds all internal links.
+    Scrapes a single page that requires JavaScript, using Selenium.
 
     Args:
         url: The URL of the page to scrape.
 
     Returns:
-        A tuple containing the cleaned text and a list of internal links.
+        The cleaned text content of the page, or None if an error occurs.
     """
+    print(f"Scraping: {url}")
+    # Set up Chrome options for headless Browse
+    options = webdriver.ChromeOptions()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    
+    # Initialize the Chrome driver automatically
+    service = ChromeService(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
+    
     try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
+        driver.get(url)
+        # Give the JavaScript time to load the content.
+        # This value may need to be adjusted.
+        time.sleep(3) 
 
-        # Remove script, style, nav, and footer elements for cleaner text
-        for element in soup(["script", "style", "nav", "footer"]):
+        # Now that the page is loaded, get the HTML and parse it
+        html = driver.page_source
+        soup = BeautifulSoup(html, 'html.parser')
+
+        for element in soup(["script", "style", "nav", "footer", "header"]):
             element.decompose()
 
-        # Extract clean text
         text = soup.get_text(separator='\n', strip=True)
+        return text
 
-        # Find all internal links
-        internal_links = []
-        for a_tag in soup.find_all('a', href=True):
-            link = a_tag['href']
-            # Join relative links with the base URL
-            full_link = urljoin(url, link)
-            # Ensure the link belongs to the aven.com domain
-            if urlparse(full_link).netloc == 'www.aven.com':
-                internal_links.append(full_link)
+    except Exception as e:
+        print(f"  -> Error scraping {url}: {e}")
+        return None
+    finally:
+        # Important: Quit the driver to free up resources
+        driver.quit()
 
-        return text, internal_links
-
-    except requests.RequestException as e:
-        print(f"Error scraping {url}: {e}")
-        return None, []
-
-def crawl_site(start_url: str):
+def scrape_specific_pages(urls: list[str], output_file: str):
     """
-    Crawls an entire website starting from a given URL.
-
-    Args:
-        start_url: The URL to begin crawling from.
+    Scrapes a specific list of URLs and saves their combined text to a file.
     """
-    to_visit = {start_url}
-    visited = set()
     all_text_content = []
-
-    print("🚀 Starting website crawl...")
-    while to_visit:
-        current_url = to_visit.pop()
-        if current_url in visited:
-            continue
-
-        print(f"Scraping: {current_url}")
-        visited.add(current_url)
-
-        text, new_links = scrape_page(current_url)
-
+    print("🚀 Starting targeted scrape with Selenium...")
+    for url in urls:
+        text = scrape_page_with_selenium(url)
         if text:
-            all_text_content.append(f"\n\n--- Content from {current_url} ---\n\n{text}")
+            all_text_content.append(f"\n\n--- Content from {url} ---\n\n{text}")
 
-        for link in new_links:
-            if link not in visited:
-                to_visit.add(link)
-
-    # Combine all scraped text and save to a file
-    with open("aven_data.txt", "w", encoding="utf-8") as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         f.write("\n".join(all_text_content))
 
-    print(f"\n✅ Crawl complete. Scraped {len(visited)} pages.")
-    print("All data saved to aven_data.txt")
+    print(f"\n✅ Scrape complete.")
+    print(f"All data saved to {output_file}")
 
 
 if __name__ == '__main__':
-    # The starting point for the crawl
-    starting_url = "https://www.aven.com/support"
-    crawl_site(starting_url)
+    target_urls = [
+        "https://www.aven.com/about",
+        "https://www.aven.com/education",
+        "https://www.aven.com/support",
+        "https://www.aven.com/app",
+        "https://www.aven.com/contact"
+    ]
+    output_filename = "aven_data.txt"
+    scrape_specific_pages(target_urls, output_filename)

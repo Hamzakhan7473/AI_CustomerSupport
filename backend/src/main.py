@@ -1,65 +1,56 @@
+# /backend/src/main.py
+
 import os
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
-from openai import OpenAI
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import google.generativeai as genai
 from pinecone import Pinecone
 
-# --- Load Environment & Initialize Clients ---
+# --- 1. Load API Keys from .env file ---
+# This MUST be at the top, before using any keys.
+load_dotenv()
 
-# Construct the path to the .env file in the project root
-dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
-load_dotenv(dotenv_path=dotenv_path)
+# --- 2. Configure and Initialize Services ---
+# This section ensures all services are ready before the app starts.
 
-# Initialize API clients
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-pinecone_client = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+# Configure Google Gemini
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
+    raise ValueError("Error: GOOGLE_API_KEY not found in your .env file.")
+genai.configure(api_key=GOOGLE_API_KEY)
 
+# Configure Pinecone
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+if not PINECONE_API_KEY:
+    raise ValueError("Error: PINECONE_API_KEY not found in your .env file.")
+pinecone_client = Pinecone(api_key=PINECONE_API_KEY)
 
-# --- FastAPI App & Pinecone Index ---
+# --- 3. Create FastAPI App and Global Clients ---
+# These are created once when the server starts.
 
-app = FastAPI()
-INDEX_NAME = "aven-support-agent"
+app = FastAPI(title="Aven Support Agent")
 
-# Connect to the Pinecone index
-print("Connecting to Pinecone index...")
+INDEX_NAME = "aven-support-agent"  # Your Pinecone index name
+llm = genai.GenerativeModel('gemini-1.5-pro-latest')
+embedding_model = "models/text-embedding-004"
 index = pinecone_client.Index(INDEX_NAME)
-print("✅ Connected to Pinecone index.")
 
+# --- 4. Define API Data Models ---
 
-# --- RAG Core Functions ---
+class QueryRequest(BaseModel):
+    query: str
 
-def get_context(query: str, top_k: int = 3) -> str:
-    """
-    Creates a vector embedding for the user's query and retrieves the
-    most relevant text chunks (context) from the Pinecone index.
-    """
-    try:
-        query_embedding = openai_client.embeddings.create(
-            input=[query],
-            model="text-embedding-3-small"
-        ).data[0].embedding
+class QueryResponse(BaseModel):
+    answer: str
 
-        query_results = index.query(
-            vector=query_embedding,
-            top_k=top_k,
-            include_metadata=True
-        )
-        context_chunks = [match['metadata']['text'] for match in query_results['matches']]
-        return " ".join(context_chunks)
-    except Exception as e:
-        print(f"Error getting context from Pinecone: {e}")
-        return "Error: Could not retrieve context."
+# --- 5. Core Application Logic ---
 
 def get_llm_response(query: str, context: str) -> str:
-    """
-    Generates a response from the LLM based on the user's query and
-    the retrieved context from the knowledge base.
-    """
     prompt = f"""
-    You are a helpful and friendly customer support agent for Aven.
-    Use the following context to answer the user's question accurately.
-    Do not make up information. If the context doesn't contain the answer,
-    say "I'm sorry, I don't have enough information to answer that."
+    You are a helpful customer support agent for Aven.
+    Use the following context to answer the user's question.
+    If the context doesn't contain the answer, say "I'm sorry, I don't have enough information to answer that."
 
     Context:
     {context}
@@ -67,47 +58,41 @@ def get_llm_response(query: str, context: str) -> str:
     User's Question:
     {query}
     """
-    
     try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are a helpful customer support agent for Aven."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.5
-        )
-        return response.choices[0].message.content
+        response = llm.generate_content(prompt)
+        return response.text
     except Exception as e:
-        print(f"Error getting response from LLM: {e}")
-        return "Error: Could not generate a response."
+        print(f"Error generating LLM response: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate language model response.")
 
+# --- 6. API Endpoint ---
 
-# --- API Endpoint for Vapi ---
-
-@app.post("/api/v1")
-async def handle_vapi_request(request: Request):
+@app.post("/query", response_model=QueryResponse)
+async def answer_query(request: QueryRequest):
     """
-    This is the main endpoint Vapi will call. It orchestrates the RAG pipeline.
+    Receives a query, finds relevant context in Pinecone, and generates an answer.
     """
-    body = await request.json()
-    
-    # Extract the last message from the user
-    # Vapi sends a transcript of the conversation
-    last_message = body.get('message', {}).get('content', [{}])[-1]
-    
-    if last_message.get('role') == 'user':
-        user_query = last_message.get('content', '')
-        print(f"Received query: {user_query}")
+    try:
+        # Create embedding for the incoming query
+        query_embedding = genai.embed_content(
+            model=embedding_model,
+            content=request.query
+        )['embedding']
+
+        # Query Pinecone for context
+        query_results = index.query(
+            vector=query_embedding,
+            top_k=5,
+            include_metadata=True
+        )
+        context_chunks = [match['metadata'].get('text', '') for match in query_results['matches']]
+        context = "\n\n".join(context_chunks)
+
+        # Generate the final answer
+        answer = get_llm_response(query=request.query, context=context)
         
-        # 1. Retrieve context from Pinecone
-        context = get_context(user_query)
-        
-        # 2. Generate a response from the LLM
-        ai_response = get_llm_response(user_query, context)
-        
-        print(f"Sending reply: {ai_response}")
-        # 3. Send the response back to Vapi
-        return {"reply": ai_response}
-        
-    return {"reply": "I'm listening. How can I help you with Aven today?"}
+        return QueryResponse(answer=answer)
+
+    except Exception as e:
+        print(f"An error occurred in the query endpoint: {e}")
+        raise HTTPException(status_code=500, detail="An internal server error occurred.")
