@@ -1,43 +1,67 @@
+// lib/services/api_service.dart
+
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
+// DO NOT import 'dart:io' for a web application.
 
 class ApiService {
-  static Future<String> sendMessage(String message, {String intent = 'General'}) async {
-    final url = Uri.parse('http://localhost:5000/api/ask'); // Update to your actual endpoint
+  // For Flutter web, the backend URL is simply localhost with the correct port.
+  // We hardcode this because we are running in a browser.
+  static const String _baseUrl = 'http://localhost:8000';
 
-    final response = await http.post(
-      url,
-      headers: {"Content-Type": "application/json"},
-      body: jsonEncode({
-        "query": message,
-        "intent": intent,
-      }),
-    );
+  /// Sends a user's conversational query to the /query endpoint.
+  static Future<String> sendMessage(String message) async {
+    final url = Uri.parse('$_baseUrl/query');
+    
+    try {
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
+        body: jsonEncode(<String, String>{
+          'query': message,
+        }),
+      );
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data['response'] ?? '✅ Received (no text)';
-    } else {
-      throw Exception('Failed to get response from API');
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        return data['answer'] ?? 'Error: "answer" field not found.';
+      } else {
+        throw Exception('Server returned an error: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Failed to connect to the server. Is it running and is CORS configured?');
     }
   }
 
-  static Future<String> uploadFile(File file, {String intent = 'General'}) async {
-    final url = Uri.parse('http://localhost:5000/api/upload'); // Update if needed
+  /// Creates a support ticket directly via the /create-ticket endpoint.
+  static Future<String> createTicket({
+    required String email,
+    required String issueDescription,
+  }) async {
+    final url = Uri.parse('$_baseUrl/create-ticket');
+    
+    try {
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
+        body: jsonEncode(<String, String>{
+          'email': email,
+          'issue_description': issueDescription,
+        }),
+      );
 
-    final request = http.MultipartRequest('POST', url)
-      ..fields['intent'] = intent
-      ..files.add(await http.MultipartFile.fromPath('file', file.path));
-
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data['response'] ?? '✅ File processed successfully.';
-    } else {
-      throw Exception('❌ Failed to upload file: ${response.body}');
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        return data['message'] ?? 'Ticket created successfully.';
+      } else {
+        throw Exception('Server returned an error while creating ticket: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Failed to connect to the server to create ticket.');
     }
   }
 }

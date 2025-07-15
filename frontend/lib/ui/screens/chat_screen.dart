@@ -1,9 +1,10 @@
-import 'dart:io';
+// lib/ui/screens/chat_screen.dart
+
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart'; // Import the package
+import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart'; // 1. IMPORT URL LAUNCHER
 import '../../widgets/chat_box.dart';
 import '../../services/api_service.dart';
-import 'package:file_picker/file_picker.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -16,71 +17,122 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final List<Map<String, String>> messages = [];
   bool isTyping = false;
-  String selectedIntent = 'General';
 
-  final List<String> intents = ['General', 'Refund', 'Pricing', 'Tech Support'];
+  final Color primaryColor = const Color(0xFF0D47A1);
+  final Color accentColor = const Color(0xFF1976D2);
 
-  // --- Theme Colors ---
-  final Color primaryColor = const Color(0xFF0D47A1); // A deep, professional blue
-  final Color accentColor = const Color(0xFF1976D2); // A brighter blue for accents
-  final Color lightAccentColor = Colors.blue.shade50; // A very light blue for backgrounds
-
-  // All functions (sendMessage, pickAndUploadFile) remain unchanged.
+  // (The sendMessage and _handleCreateTicket functions remain the same)
   void sendMessage() async {
     final userMessage = _controller.text.trim();
     if (userMessage.isEmpty) return;
 
     setState(() {
-      messages.add({'role': 'user', 'text': '[$selectedIntent] $userMessage'});
+      messages.add({'role': 'user', 'text': userMessage});
       _controller.clear();
       isTyping = true;
     });
 
     try {
-      final aiResponse =
-          await ApiService.sendMessage(userMessage, intent: selectedIntent);
+      final aiResponse = await ApiService.sendMessage(userMessage);
       setState(() {
         messages.add({'role': 'assistant', 'text': aiResponse});
         isTyping = false;
       });
     } catch (e) {
       setState(() {
-        messages.add({'role': 'assistant', 'text': '❌ Failed to get response'});
+        messages.add({'role': 'assistant', 'text': '❌ Failed to get response. Please check the backend server.'});
         isTyping = false;
       });
     }
   }
 
-  Future<void> pickAndUploadFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: false,
-      type: FileType.custom,
-      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+  void _showCreateTicketDialog() {
+    final emailController = TextEditingController();
+    final issueController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text("Create a Support Ticket", style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: emailController,
+                decoration: const InputDecoration(labelText: "Your Email"),
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: issueController,
+                decoration: const InputDecoration(labelText: "Describe your issue"),
+                maxLines: 3,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              child: const Text("Cancel"),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            FilledButton(
+              child: const Text("Create"),
+              onPressed: () {
+                final email = emailController.text.trim();
+                final issue = issueController.text.trim();
+                if (email.isNotEmpty && issue.isNotEmpty) {
+                  Navigator.of(context).pop();
+                  _handleCreateTicket(email: email, issueDescription: issue);
+                }
+              },
+            ),
+          ],
+        );
+      },
     );
+  }
 
-    if (result != null && result.files.single.path != null) {
-      File file = File(result.files.single.path!);
+  void _handleCreateTicket({required String email, required String issueDescription}) async {
+    setState(() {
+      messages.add({'role': 'user', 'text': 'Creating ticket for issue: "$issueDescription"'});
+      isTyping = true;
+    });
+
+    try {
+      final confirmationMessage = await ApiService.createTicket(
+        email: email,
+        issueDescription: issueDescription,
+      );
       setState(() {
-        messages.add(
-            {'role': 'user', 'text': '📤 Uploading: ${file.path.split('/').last}'});
-        isTyping = true;
+        messages.add({'role': 'assistant', 'text': confirmationMessage});
+        isTyping = false;
       });
-
-      try {
-        String response =
-            await ApiService.uploadFile(file, intent: selectedIntent);
-        setState(() {
-          messages.add({'role': 'assistant', 'text': response});
-          isTyping = false;
-        });
-      } catch (e) {
-        setState(() {
-          messages.add({'role': 'assistant', 'text': '❌ File upload failed'});
-          isTyping = false;
-        });
-      }
+    } catch (e) {
+      setState(() {
+        messages.add({'role': 'assistant', 'text': '❌ Failed to create ticket.'});
+        isTyping = false;
+      });
     }
   }
+
+  // --- 2. NEW: FUNCTION TO LAUNCH THE VAPI VOICE CALL PAGE ---
+  void _startVoiceCall() async {
+    // This should be the URL where your Vapi-enabled index.html is hosted.
+    // For local testing, you might serve it from a local web server.
+    // For production, this would be your live website URL.
+    final vapiUrl = Uri.parse('http://localhost:5500/index.html'); // Example URL
+
+    if (await canLaunchUrl(vapiUrl)) {
+      await launchUrl(vapiUrl);
+    } else {
+      // Show an error if the URL can't be launched
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not launch voice call. Please try again later.')),
+      );
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -89,15 +141,29 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         title: Text(
           "Aven AI Chat",
-          // Applying Poppins font to the AppBar title
           style: GoogleFonts.poppins(
               fontWeight: FontWeight.w600, color: Colors.white),
         ),
         backgroundColor: primaryColor,
         elevation: 1,
         centerTitle: true,
+        actions: [
+          // --- 3. NEW: VOICE CALL ICON BUTTON ---
+          IconButton(
+            icon: const Icon(Icons.phone_in_talk, color: Colors.white),
+            onPressed: _startVoiceCall,
+            tooltip: 'Start a voice call',
+          ),
+          IconButton(
+            icon: const Icon(Icons.support_agent, color: Colors.white),
+            onPressed: _showCreateTicketDialog,
+            tooltip: 'Create a support ticket',
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Column(
+        // ... (rest of the body remains the same)
         children: [
           Expanded(
             child: ListView.builder(
@@ -110,13 +176,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 }
                 final messageIndex = isTyping ? index - 1 : index;
                 final message = messages.reversed.toList()[messageIndex];
-                // You can also pass the font style to your ChatBox widget
+                
                 return ChatBox(
                   text: message['text']!,
                   isUser: message['role'] == 'user',
-                  // Example of how you might style the ChatBox text:
-                  // textStyle: GoogleFonts.poppins(),
-                  // userColor: accentColor,
                 );
               },
             ),
@@ -135,72 +198,11 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
             child: SafeArea(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildIntentSelector(),
-                  const SizedBox(height: 12),
-                  _buildMessageInput(),
-                ],
-              ),
+              child: _buildMessageInput(),
             ),
           )
         ],
       ),
-    );
-  }
-
-  Widget _buildIntentSelector() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          children: [
-            const SizedBox(width: 4),
-            Icon(Icons.label_outline, size: 20, color: Colors.grey.shade600),
-            const SizedBox(width: 8),
-            Text(
-              "Intent:",
-              style: GoogleFonts.poppins(fontSize: 15, color: Colors.black54),
-            ),
-            const SizedBox(width: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(
-                color: lightAccentColor,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: DropdownButton<String>(
-                value: selectedIntent,
-                underline: const SizedBox.shrink(),
-                icon: Icon(Icons.expand_more, color: primaryColor),
-                isDense: true,
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => selectedIntent = value);
-                  }
-                },
-                items: intents
-                    .map((intent) => DropdownMenuItem<String>(
-                          value: intent,
-                          child: Text(
-                            intent,
-                            style: GoogleFonts.poppins(
-                                fontWeight: FontWeight.w500,
-                                color: primaryColor),
-                          ),
-                        ))
-                    .toList(),
-              ),
-            ),
-          ],
-        ),
-        IconButton(
-          icon: Icon(Icons.attach_file_outlined, color: Colors.grey.shade700),
-          onPressed: pickAndUploadFile,
-          tooltip: 'Upload file (PDF, JPG, PNG)',
-        ),
-      ],
     );
   }
 
