@@ -2,9 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:url_launcher/url_launcher.dart'; // 1. IMPORT URL LAUNCHER
 import '../../widgets/chat_box.dart';
 import '../../services/api_service.dart';
+// 1. IMPORT THE NEW VAPI CALL SCREEN WE WILL CREATE
+import './vapi_call_screen.dart'; 
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -17,11 +18,12 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final List<Map<String, String>> messages = [];
   bool isTyping = false;
+  bool isCalling = false; // To show a loading indicator for the voice call button
 
   final Color primaryColor = const Color(0xFF0D47A1);
   final Color accentColor = const Color(0xFF1976D2);
 
-  // (The sendMessage and _handleCreateTicket functions remain the same)
+  // (The sendMessage and ticket creation functions remain the same)
   void sendMessage() async {
     final userMessage = _controller.text.trim();
     if (userMessage.isEmpty) return;
@@ -116,20 +118,34 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // --- 2. NEW: FUNCTION TO LAUNCH THE VAPI VOICE CALL PAGE ---
+  // --- 2. UPDATED: FUNCTION TO NAVIGATE TO THE IN-APP VAPI CALL SCREEN ---
   void _startVoiceCall() async {
-    // This should be the URL where your Vapi-enabled index.html is hosted.
-    // For local testing, you might serve it from a local web server.
-    // For production, this would be your live website URL.
-    final vapiUrl = Uri.parse('http://localhost:5500/index.html'); // Example URL
+    setState(() => isCalling = true);
 
-    if (await canLaunchUrl(vapiUrl)) {
-      await launchUrl(vapiUrl);
-    } else {
-      // Show an error if the URL can't be launched
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not launch voice call. Please try again later.')),
+    try {
+      // Fetch the secure keys from your backend
+      final vapiConfig = await ApiService.getVapiConfig();
+
+      if (vapiConfig.publicKey.isEmpty || vapiConfig.assistantId.isEmpty) {
+        throw Exception("Received empty config from server.");
+      }
+
+      // Navigate to the new screen, passing the keys to it.
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => VapiCallScreen(
+            publicKey: vapiConfig.publicKey,
+            assistantId: vapiConfig.assistantId,
+          ),
+        ),
       );
+
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error starting voice call: ${e.toString()}')),
+      );
+    } finally {
+      setState(() => isCalling = false);
     }
   }
 
@@ -148,12 +164,17 @@ class _ChatScreenState extends State<ChatScreen> {
         elevation: 1,
         centerTitle: true,
         actions: [
-          // --- 3. NEW: VOICE CALL ICON BUTTON ---
-          IconButton(
-            icon: const Icon(Icons.phone_in_talk, color: Colors.white),
-            onPressed: _startVoiceCall,
-            tooltip: 'Start a voice call',
-          ),
+          // --- UPDATED: VOICE CALL BUTTON WITH LOADING INDICATOR ---
+          isCalling
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.phone_in_talk, color: Colors.white),
+                  onPressed: _startVoiceCall,
+                  tooltip: 'Start a voice call',
+                ),
           IconButton(
             icon: const Icon(Icons.support_agent, color: Colors.white),
             onPressed: _showCreateTicketDialog,

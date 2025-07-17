@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vapi Call</title>
+    <!-- Import the Vapi JS SDK -->
+    <script src="https://cdn.vapi.ai/web/v1/vapi.es.js"></script>
+    <style>
+        /* Styling to match your app's dark theme */
+        body, html {
+            background-color: #121212; /* A modern dark background */
+            color: #E0E0E0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            margin: 0;
+            text-align: center;
+            overflow: hidden;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+        .loader {
+            border: 4px solid #30363D;
+            border-top: 4px solid #00A86B; /* Your brand's green */
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        .icon {
+            font-size: 60px;
+            color: #00A86B;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div id="icon-container">
+             <div id="loader" class="loader"></div>
+        </div>
+        <h2 id="status-message">Connecting to Aven AI...</h2>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const statusMessage = document.getElementById('status-message');
+            const iconContainer = document.getElementById('icon-container');
+
+            // 1. Get keys from the URL query parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const publicKey = urlParams.get('publicKey');
+            const assistantId = urlParams.get('assistantId');
+
+            if (!publicKey || !assistantId) {
+                statusMessage.innerText = 'Error: Missing API keys.';
+                iconContainer.innerHTML = '<p style="color: red; font-size: 40px;">⚠️</p>';
+                return;
+            }
+
+            // 2. Initialize Vapi
+            const vapi = new Vapi(publicKey);
+
+            // 3. Listen for events to update the UI
+            vapi.on('call-start', () => {
+                console.log('Vapi call has started.');
+                statusMessage.innerText = 'Connected. Speak now.';
+                iconContainer.innerHTML = '<p class="icon">🎙️</p>'; // Microphone icon
+            });
+
+            vapi.on('call-end', () => {
+                console.log('Vapi call has ended.');
+                statusMessage.innerText = 'Call Ended.';
+                iconContainer.innerHTML = '<p class="icon">✅</p>'; // Checkmark icon
+            });
+
+            vapi.on('error', (e) => {
+                console.error('Vapi error:', e);
+                statusMessage.innerText = 'An error occurred.';
+                iconContainer.innerHTML = '<p style="color: red; font-size: 40px;">⚠️</p>';
+            });
+
+            // 4. Start the call
+            vapi.start(assistantId);
+        });
+    </script>
+
+</body>
+</html>

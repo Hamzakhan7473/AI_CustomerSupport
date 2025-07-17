@@ -2,11 +2,25 @@
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-// DO NOT import 'dart:io' for a web application.
+// We remove the 'dart:io' import as it's not compatible with web.
+
+// --- NEW: A simple data class to hold the Vapi configuration ---
+class VapiConfig {
+  final String publicKey;
+  final String assistantId;
+
+  VapiConfig({required this.publicKey, required this.assistantId});
+
+  factory VapiConfig.fromJson(Map<String, dynamic> json) {
+    return VapiConfig(
+      publicKey: json['publicKey'] ?? '',
+      assistantId: json['assistantId'] ?? '',
+    );
+  }
+}
 
 class ApiService {
   // For Flutter web, the backend URL is simply localhost with the correct port.
-  // We hardcode this because we are running in a browser.
   static const String _baseUrl = 'http://localhost:8000';
 
   /// Sends a user's conversational query to the /query endpoint.
@@ -62,6 +76,25 @@ class ApiService {
       }
     } catch (e) {
       throw Exception('Failed to connect to the server to create ticket.');
+    }
+  }
+
+  // --- NEW: FUNCTION TO FETCH VAPI CONFIG FROM THE BACKEND ---
+  
+  /// Fetches the Vapi Public Key and Assistant ID from the server.
+  static Future<VapiConfig> getVapiConfig() async {
+    final url = Uri.parse('$_baseUrl/api/vapi-config');
+    
+    try {
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        return VapiConfig.fromJson(jsonDecode(response.body));
+      } else {
+        throw Exception('Failed to load Vapi config from server: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Failed to connect to server for Vapi config.');
     }
   }
 }
