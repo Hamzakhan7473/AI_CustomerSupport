@@ -1,0 +1,11 @@
+{
+  "projectSettings": {
+    "framework": "other"
+  },
+  "rewrites": [
+    {
+      "source": "/vapi",
+      "destination": "/vapi.html"
+    }
+  ]
+}
