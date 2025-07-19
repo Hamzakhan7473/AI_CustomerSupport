@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Vapi Voice Assistant</title>
+    <meta charset="UTF-8" />
+  </head>
+  <body style="background-color:#000; color:#fff; font-family:sans-serif; padding:2rem;">
+    <h2 id="status">🔄 Connecting to Aven AI...</h2>
+    <div id="transcript" style="margin-top:2rem; font-size:1.1rem;"></div>
+
+    <script type="module">
+      import Vapi from "https://esm.sh/@vapi-ai/web";
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const assistantId = urlParams.get("assistantId");
+      const publicKey = urlParams.get("publicKey");
+
+      const statusEl = document.getElementById("status");
+      const transcriptEl = document.getElementById("transcript");
+
+      if (!assistantId || !publicKey) {
+        statusEl.innerHTML = "❌ Missing assistantId or publicKey";
+        throw new Error("Missing query params");
+      }
+
+      const vapi = new Vapi({
+        apiKey: publicKey,
+        baseUrl: "https://7e276e7a8a76.ngrok-free.app", // update this
+      });
+
+      try {
+        vapi.start(assistantId);
+      } catch (e) {
+        console.error("❌ Error starting Vapi:", e);
+        statusEl.innerHTML = "❌ Error starting Vapi";
+      }
+
+      vapi.on("call-start", () => {
+        statusEl.innerHTML = "🟢 Connected — You’re now speaking with Aven AI";
+      });
+
+      vapi.on("call-end", () => {
+        statusEl.innerHTML = "🔴 Call ended";
+      });
+
+      vapi.on("message", (msg) => {
+        const p = document.createElement("p");
+        p.textContent = "🤖 " + msg;
+        transcriptEl.appendChild(p);
+      });
+
+      vapi.on("error", (e) => {
+        console.error("❌ Error:", e);
+        statusEl.innerHTML = "❌ Call error: " + (e?.message || "Unknown error");
+      });
+    </script>
+  </body>
+</html>
