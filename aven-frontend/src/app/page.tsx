@@ -1,9 +1,11 @@
-// src/app/page.tsx
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import ChatMessage from './ChatMessage';
 import { ChatMessage as Message } from './types';
+import VoiceAssistant from './VoiceAssistant';
+
+const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 export default function ChatPage() {
   const [activeTab, setActiveTab] = useState<'chat' | 'voice' | 'ticket'>('chat');
@@ -20,7 +22,7 @@ export default function ChatPage() {
     const userMessage: Message = {
       role: 'user',
       content: trimmed,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
@@ -28,7 +30,7 @@ export default function ChatPage() {
     setTyping(true);
 
     try {
-      const res = await fetch('https://7e276e7a8a76.ngrok-free.app/query', {
+      const res = await fetch(`${BASE_URL}/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: trimmed }),
@@ -46,12 +48,12 @@ export default function ChatPage() {
 
       setMessages((prev) => [...prev, botMessage]);
     } catch (err) {
-      console.error(err);
+      console.error('❌ Error:', err);
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: '❌ Aven AI is temporarily unavailable. Please try again later.',
+          content: '❌ Aven AI is temporarily unavailable.',
           timestamp: new Date().toISOString(),
         },
       ]);
@@ -71,7 +73,7 @@ export default function ChatPage() {
       {/* Header */}
       <div className="flex justify-between items-center pb-4 border-b border-gray-200">
         <div>
-          <h1 className="text-xl font-bold">Aven</h1>
+          <h1 className="text-xl font-semibold">Aven</h1>
           <p className="text-xs text-gray-500 mt-1">Encrypted · 24/7 AI Support</p>
         </div>
       </div>
@@ -106,7 +108,7 @@ export default function ChatPage() {
                 <div className="text-xs text-gray-400 mt-1 text-right">
                   {new Date(msg.timestamp || '').toLocaleTimeString()}
                 </div>
-                {msg.suggestions && msg.suggestions.length > 0 && (
+                {Array.isArray(msg.suggestions) && msg.suggestions.length > 0 && (
                   <div className="mt-2 flex gap-2 flex-wrap">
                     {msg.suggestions.map((s, idx) => (
                       <button
@@ -121,7 +123,11 @@ export default function ChatPage() {
                 )}
               </div>
             ))}
-            {typing && <div className="text-sm text-gray-400">Aven AI is typing<span className="animate-pulse">...</span></div>}
+            {typing && (
+              <div className="text-sm text-gray-400">
+                Aven AI is typing<span className="animate-pulse">...</span>
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
 
@@ -149,13 +155,7 @@ export default function ChatPage() {
       {/* Voice View */}
       {activeTab === 'voice' && (
         <div className="flex-1 flex items-center justify-center">
-          <iframe
-            src="/vapi.html?publicKey=YOUR_PUBLIC_KEY&assistantId=YOUR_ASSISTANT_ID"
-            width="100%"
-            height="500"
-            style={{ border: 'none', borderRadius: '12px' }}
-            title="Voice Assistant"
-          />
+          <VoiceAssistant />
         </div>
       )}
 
@@ -165,7 +165,7 @@ export default function ChatPage() {
           onSubmit={(e) => {
             e.preventDefault();
             const formData = new FormData(e.currentTarget);
-            fetch('https://7e276e7a8a76.ngrok-free.app/create-ticket', {
+            fetch(`${BASE_URL}/create-ticket`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
